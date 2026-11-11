@@ -87,6 +87,11 @@ Use the same model and training options when resuming.
 
 ## Post-training adaptation
 
+RankSim-style single-run and batch submission scripts are available in
+[`postadapt/`](postadapt/README.md). From that directory, run
+`bash submit_postadapt.sh --dry-run` to inspect the default AgeDB DIR-aligned jobs,
+then `bash submit_postadapt.sh` to submit them. Grid settings and run filters are documented there.
+
 `postadapt.py` ports the original `postadpt.py`. It strictly loads ConR's encoder and `linear.*` regression head, including DataParallel `module.*` prefixes. FDS training statistics are omitted because evaluation uses raw encoder features.
 
 ```bash
