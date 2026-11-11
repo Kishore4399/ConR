@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader
 from loss import *
 from utils import *
 from datasets import AgeDB
-from resnet import resnet50
+from resnet import resnet18, resnet50, load_imagenet_backbone
 
 from ranksim import batchwise_ranking_regularizer
 
@@ -78,7 +78,7 @@ parser.add_argument('--data_dir', type=str, default='./data', help='data directo
 parser.add_argument('--data_csv', default=None, help='DIR split CSV (defaults to the CSV in data_dir)')
 parser.add_argument('--device', choices=['cuda', 'cpu'], default='cuda')
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--model', type=str, default='resnet50', help='model name')
+parser.add_argument('--model', type=str, default='resnet50', choices=['resnet18', 'resnet50'], help='model name')
 parser.add_argument('--store_root', type=str, default='checkpoint', help='root path for storing checkpoints, logs')
 parser.add_argument('--store_name', type=str, default='', help='experiment store name')
 parser.add_argument('--gpu', type=int, default=None)
@@ -88,7 +88,11 @@ parser.add_argument('--lr', type=float, default=2.5e-4, help='initial learning r
 parser.add_argument('--epoch', type=int, default=120, help='number of epochs to train')
 parser.add_argument('--momentum', type=float, default=0.9, help='optimizer momentum')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='optimizer weight decay')
-parser.add_argument('--schedule', type=int, nargs='*', default=[60, 80], help='lr schedule (when to drop lr by 10x)')
+parser.add_argument('--schedule', type=int, nargs='*', default=[60, 80], help='LR decay milestone epochs')
+parser.add_argument('--lr_step', type=int, default=None, help='step LR schedule interval; DIR uses 50')
+parser.add_argument('--lr_gamma', type=float, default=0.1, help='LR decay multiplicative factor; DIR uses 0.5')
+parser.add_argument('--save_start', type=int, default=1, help='first 1-based epoch eligible for best validation checkpoint')
+parser.add_argument('--imagenet_pretrained', action='store_true', help='initialize ResNet backbone from ImageNet weights and normalize accordingly')
 parser.add_argument('--batch_size', type=int, default=64, help='batch size')
 parser.add_argument('--print_freq', type=int, default=10, help='logging frequency')
 parser.add_argument('--img_size', type=int, default=224, help='image size used in training')
@@ -186,10 +190,10 @@ def main():
 
     
 
-    train_dataset = AgeDB(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train',
+    train_dataset = AgeDB(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train', imagenet_normalize=args.imagenet_pretrained,
                           reweight=args.reweight, lds=args.lds, lds_kernel=args.lds_kernel, lds_ks=args.lds_ks, lds_sigma=args.lds_sigma)
-    val_dataset = AgeDB(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val')
-    test_dataset = AgeDB(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test')
+    val_dataset = AgeDB(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val', imagenet_normalize=args.imagenet_pretrained)
+    test_dataset = AgeDB(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test', imagenet_normalize=args.imagenet_pretrained)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.workers, pin_memory=args.device == 'cuda', drop_last=False)
@@ -203,11 +207,14 @@ def main():
 
     # Model
     print('=====> Building model...')
-    model = resnet50(fds=args.fds, bucket_num=args.bucket_num, bucket_start=args.bucket_start,
+    model = {'resnet18': resnet18, 'resnet50': resnet50}[args.model](fds=args.fds, bucket_num=args.bucket_num, bucket_start=args.bucket_start,
                      start_update=args.start_update, start_smooth=args.start_smooth,
                      kernel=args.fds_kernel, ks=args.fds_ks, sigma=args.fds_sigma, momentum=args.fds_mmt,
                      return_features=(args.regularization_weight > 0))
     
+    if args.imagenet_pretrained:
+        transferred = load_imagenet_backbone(model, args.model)
+        print(f'Loaded ImageNet pretrained {args.model} backbone: {transferred} matching tensors')
     device_ids = [args.gpu] if args.gpu is not None else None
     model = torch.nn.DataParallel(model.to(args.torch_device), device_ids=device_ids)
     
@@ -275,8 +282,9 @@ def main():
 
         loss_metric = val_loss_mse if args.loss == 'mse' else val_loss_l1
         # loss_metric = low_loss
-        is_best = loss_metric < args.best_loss    
-        args.best_loss = min(loss_metric, args.best_loss)
+        is_best = epoch + 1 >= args.save_start and loss_metric < args.best_loss
+        if epoch + 1 >= args.save_start:
+            args.best_loss = min(loss_metric, args.best_loss)
 
         print(f"Best {'L1' if 'l1' in args.loss else 'MSE'} Loss: {args.best_loss:.3f}")
         save_checkpoint(args, {
