@@ -306,5 +306,31 @@ class ResNet(nn.Module):
         return x, encoding
 
 
+def resnet18(**kwargs):
+    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+
+
 def resnet50(**kwargs):
     return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+
+
+def load_imagenet_backbone(model, name):
+    """Load torchvision ImageNet feature weights; preserve ConR's random linear head.
+
+    The custom backbone has matching conv/bn/layer names, but a 'linear'
+    regression head rather than torchvision's 'fc' classification head.
+    """
+    from torchvision import models as tv_models
+    options = {
+        'resnet18': (tv_models.resnet18, tv_models.ResNet18_Weights.IMAGENET1K_V1),
+        'resnet50': (tv_models.resnet50, tv_models.ResNet50_Weights.IMAGENET1K_V2),
+    }
+    builder, weights = options[name]
+    source = builder(weights=weights).state_dict()
+    target = model.state_dict()
+    matching = {key: val for key, val in source.items()
+                if key in target and target[key].shape == val.shape}
+    if len(matching) < 100:
+        raise RuntimeError(f'ImageNet loading unexpectedly matched only {len(matching)} tensors')
+    model.load_state_dict(matching, strict=False)
+    return len(matching)
