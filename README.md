@@ -103,7 +103,13 @@ The default uses labeled validation images, a frozen head, W2 conditional error 
 
 W2/L1/KL/symmetric-KL losses, label-balanced sampling, cosine learning-rate scheduling, source bias correction, and validation DC/MAE selection are retained. `model.optim.param=all` also trains the head. A separate frozen source head keeps reference predictions stable in that mode.
 
-Evaluation directly resizes to 224×224 and normalizes with mean/std 0.5 to match ConR. Adaptation defaults to crop and flip. Full precision is the default. Override `trainer.precision=bf16-mixed` on supported hardware.
+Evaluation resizes to 224×224 and inherits the source normalization: ImageNet statistics for `--imagenet_pretrained` runs, mean/std 0.5 for original ConR. Adaptation uses the same normalization and defaults to crop and flip. Full precision is the default. Override `trainer.precision=bf16-mixed` on supported hardware.
+
+Post-adaptation supports both ResNet18 (512 features) and ResNet50 (2048). The default `model.backbone.params.name=auto` infers the architecture from checkpoint weights; an explicit name must match. `dataset.name`, `data_folder`, `data_csv`, `img_size`, and `normalization` default to `auto` and follow the source checkpoint's sibling `training.log`. Explicit dataset values override these defaults. For old ConR logs without an ImageNet flag, normalization remains 0.5. Missing logs require explicit settings; the code does not guess normalization. Source relative paths are resolved against the dataset training directory used by the supplied launch scripts; custom training working directories need explicit absolute overrides.
+
+Resolved inputs are printed and saved to `source_data_config.json`. Default corrected output directories have a `_sourceAligned_imagenet` or `_sourceAligned_conr` suffix, keeping older exports separate. `logger.save_dir` remains an explicit output-directory override. Existing before/after predictions must be regenerated with the corrected inputs, and an adapted model trained with incorrect normalization needs adaptation rerun. The source backbone does not need retraining solely for this issue.
+
+Run `python -m unittest discover -s tests -v` for source-contract regression checks and CPU checkpoint prediction parity for ResNet18/50. Parity tests skip if the training libraries are unavailable.
 
 Outputs beside the source checkpoint include source bias coefficients, before/after predictions, candidate checkpoints, the selected adapted checkpoint, and `metrics_best.csv`. Override `logger.save_dir` to choose another location. W&B logging is offline. Adaptation currently uses one device.
 
@@ -125,3 +131,4 @@ Full dataset training and paper metrics require the cluster's images and GPU. Lo
 Age-estimation code comes from BorealisAI/ConR at `ad6a8c90426da9243f9e1de7bb37c7429bb99256`. The adaptation source blobs are `238df619d94ba5c9968e0d4b2af280f774071000` for `postadpt.py` and `eab4a396399abadb244671f9ea380b6fa606fdb0` for `dataset.py` on `condition-variance-cosine`.
 
 The original source notices and [LICENSE](LICENSE), CC BY-NC-SA 4.0, are preserved. ConR builds on Yang et al., Delving into Deep Imbalanced Regression, and Gong et al., RankSim.
+

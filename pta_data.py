@@ -9,18 +9,24 @@ import pytorch_lightning as pl
 from torchvision import transforms
 
 
-def get_transforms(split, aug):
-    operations = [transforms.Resize((224, 224))]
+def get_transforms(split, aug, img_size=224, normalization="conr"):
+    if normalization == "imagenet":
+        normalizer = transforms.Normalize([.485, .456, .406], [.229, .224, .225])
+    elif normalization == "conr":
+        normalizer = transforms.Normalize([.5] * 3, [.5] * 3)
+    else:
+        raise ValueError(f"Unknown normalization: {normalization}")
+    operations = [transforms.Resize((img_size, img_size))]
     if split == 'train':
         if 'crop' in aug.split(','):
-            operations.append(transforms.RandomCrop(224, padding=16))
+            operations.append(transforms.RandomCrop(img_size, padding=16))
         if 'flip' in aug.split(','):
             operations.append(transforms.RandomHorizontalFlip())
         if 'color' in aug.split(','):
             operations.append(transforms.ColorJitter(0.4, 0.4, 0.4, 0.1))
         if 'grayscale' in aug.split(','):
             operations.append(transforms.RandomGrayscale(p=0.2))
-    operations.extend([transforms.ToTensor(), transforms.Normalize([0.5] * 3, [0.5] * 3)])
+    operations.extend([transforms.ToTensor(), normalizer])
     return transforms.Compose(operations)
 
 
@@ -177,10 +183,14 @@ class AgeDBPTADataModule(pl.LightningDataModule):
         shuffle=True,
         balance=None,
         adaptation_split='val',
+        normalization='conr',
+        img_size=224,
     ):
         super().__init__()
         self.adaptation_split = adaptation_split
         self.data_folder = data_folder
+        self.normalization = normalization
+        self.img_size = int(img_size)
         self.aug = aug
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
@@ -196,26 +206,29 @@ class AgeDBPTADataModule(pl.LightningDataModule):
         self.balance_num_bins = int(balance.get("num_bins", 10))
         self.balance_seed = int(balance.get("seed", 0))
 
+    def _transform(self, split, aug=""):
+        return get_transforms(split, aug, self.img_size, self.normalization)
+
     def setup(self, stage=None):
         self.train_dataset = AgeDB_PTA(
             self.data_folder,
             data_csv=self.data_csv,
             label_name=self.label_name,
-            transform=get_transforms(split="train", aug=self.aug),
+            transform=self._transform("train", self.aug),
             adpt_split=self.adaptation_split)
         
         self.val_dataset = AgeDB_(
             self.data_folder,
             data_csv=self.data_csv,
             label_name=self.label_name,
-            transform=get_transforms(split="val", aug=""),
+            transform=self._transform("val"),
             split='val')
 
         self.test_dataset = AgeDB_(
             self.data_folder,
             data_csv=self.data_csv,
             label_name=self.label_name,
-            transform=get_transforms(split="val", aug=""),
+            transform=self._transform("val"),
             split='test')
         
     def adaptation_dataloader(self):
@@ -232,7 +245,7 @@ class AgeDBPTADataModule(pl.LightningDataModule):
             self.data_folder,
             data_csv=self.data_csv,
             label_name=self.label_name,
-            transform=get_transforms(split="val", aug=""),
+            transform=self._transform("val"),
             split=adpt_split)
 
         return DataLoader(
@@ -256,7 +269,7 @@ class AgeDBPTADataModule(pl.LightningDataModule):
                 self.data_folder,
                 data_csv=self.data_csv,
                 label_name=self.label_name,
-                transform=get_transforms(split="val", aug=""),
+                transform=self._transform("val"),
                 split='train'),
             batch_size=self.val_batch_size,
             shuffle=False,
@@ -309,3 +322,4 @@ class AgeDBPTADataModule(pl.LightningDataModule):
                 num_workers=self.num_workers,
                 pin_memory=True
             )
+

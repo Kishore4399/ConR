@@ -57,6 +57,7 @@ The legacy invocation `sbatch job_dir_aligned.sh 0` still means `conr`, seed 0.
 
 The ConR regularizer has **not** been changed; only the backbone selection, ImageNet loading, normalization switch, scheduler and checkpoint eligibility were added. The custom ResNet18 uses the same standard BasicBlock topology and pooling as torchvision. The regression head is randomly initialized; the pretrained feature trunk weights are transferred by name/shape.
 
-**Important:** The separate `postadapt.py` / `conr_backbone.py` implementation still expects original ConR ResNet50 checkpoints and normalization; it was not adapted to these ResNet18 checkpoints. Do not apply it to the DIR-aligned results without first aligning its backbone/preprocessing. IMDB-WIKI was not modified by this AgeDB-only entrypoint.
+`postadapt.py` / `conr_backbone.py` support both DIR-aligned ResNet18 and original ConR ResNet50 checkpoints. The backbone is inferred from checkpoint weights, and the default data settings (including ImageNet versus 0.5 normalization) follow the source checkpoint's sibling `training.log`. Keep that log with the checkpoint, or provide the data settings explicitly. IMDB-WIKI backbone training was not modified by this AgeDB-only entrypoint.
 
 **Verification:** Config options and code paths were inspected; no full GPU training has been run here. Torchvision weights must be cached or downloadable on the cluster.
+

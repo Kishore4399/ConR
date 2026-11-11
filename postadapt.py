@@ -27,7 +27,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from monai.optimizers.lr_scheduler import WarmupCosineSchedule
 
 from pta_data import AgeDBPTADataModule
-from conr_backbone import load_checkpoint
+from conr_backbone import load_checkpoint, read_checkpoint
+from source_contract import resolve_source_data, resolve_backbone
 from dir_data import dataset_paths, check_data
 
 
@@ -587,6 +588,9 @@ class PostTrainAdaptation(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters(config)
+        _, checkpoint_name = read_checkpoint(self.hparams["pretrained"])
+        params = self.hparams["backbone"]["params"]
+        params["name"] = resolve_backbone(params.get("name", "auto"), checkpoint_name)
         self.encoder = instantiate_from_config(self.hparams["backbone"])
         # Feature size: model.feature_dim if given, else from the backbone (model.Encoder sets .dim)
         enc_dim = getattr(self.encoder, "dim", None)
@@ -913,6 +917,7 @@ if __name__ == "__main__":
     args, overrides = parser.parse_known_args()
 
     config = OmegaConf.merge(OmegaConf.load(args.config), OmegaConf.from_dotlist(overrides))
+    config.dataset = resolve_source_data(config.dataset, config.model.pretrained)
     pl.seed_everything(int(config.get('seed', 0)), workers=True)
     dataset = config.dataset.pop('name')
     images, manifest = dataset_paths(dataset, config.dataset.data_folder, config.dataset.data_csv)
@@ -934,11 +939,14 @@ if __name__ == "__main__":
     balance = config['dataset'].get('balance') or {}
     if balance.get('enabled', False):   # unbalanced runs keep their old folder names
         folder += f"_balance=a{balance.get('alpha', 1.0)}b{balance.get('num_bins', 10)}"
+    folder += f"_sourceAligned_{config.dataset.normalization}"
     save_dir = (Path(config['logger']['save_dir']).expanduser().resolve()
                 if config['logger'].get('save_dir')
                 else Path(config['model']['pretrained']).resolve().parent / folder)
     save_dir.mkdir(parents=True, exist_ok=True)
     config['logger']['save_dir'] = str(save_dir)
+    with open(save_dir / 'source_data_config.json', 'w') as handle:
+        json.dump({"name": dataset, **OmegaConf.to_container(config.dataset, resolve=True)}, handle, indent=2)
 
     data_module = AgeDBPTADataModule(**config['dataset'])
     model = PostTrainAdaptation(config['model'])
@@ -969,3 +977,4 @@ if __name__ == "__main__":
         **config['trainer'],
     )
     trainer.fit(model, datamodule=data_module)
+

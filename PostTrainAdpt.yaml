@@ -7,12 +7,12 @@ model:
   sigmaFloor: 1.0              # kl/skl only: sigma = sqrt(var + sigmaFloor^2), label units; stops 1/sigma^2 blow-ups
   minNeighbors: 3              # kl/skl only: skip anchors whose kernel row has < this many effective samples
   l2spWeight: 1.0              # weight of the L2-SP penalty ||w - w0||^2 toward the pretrained weights
-  feature_dim:                 # inferred as 2048 from the ConR ResNet-50
+  feature_dim:                 # inferred: 512 for ResNet18, 2048 for ResNet50
 
   backbone:
     target: conr_backbone.Encoder
     params:
-      name: 'resnet50'
+      name: auto               # inferred from checkpoint; explicit resnet18/resnet50 must match
       
   optim:
     name: adam                 # adam | sgd (momentum 0.9) | adamw; added to the output folder name
@@ -37,9 +37,11 @@ logger:
   save_train_predictions: true   # also save train_before.csv / train_after.csv (source 'train' split, no augmentation)
 
 dataset:
-  name: agedb  # agedb | imdb_wiki
-  data_folder: null  # uses the cluster path or AGEDB_DATA_DIR / IMDB_WIKI_DATA_DIR
-  data_csv: null     # uses the official manifest or AGEDB_CSV / IMDB_WIKI_CSV
+  name: auto                  # source training.log dataset; or agedb | imdb_wiki
+  data_folder: auto           # source training.log data_dir; explicit paths override auto
+  data_csv: auto              # source training.log data_csv (same split as source evaluation)
+  normalization: auto         # source imagenet_pretrained: imagenet | conr (mean/std 0.5)
+  img_size: auto              # source training.log img_size; current models require 224
   adaptation_split: val
   num_workers: 8
   label_name: 'age'
@@ -63,3 +65,4 @@ trainer:
   benchmark: True
   fast_dev_run: False
   limit_train_batches: 1.0 # set to debug
+
