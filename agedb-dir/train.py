@@ -383,16 +383,20 @@ def train(train_loader, model, optimizer, epoch,train_labels):
     if args.fds and epoch >= args.start_update:
         print(f"Create Epoch [{epoch}] features of all training data...")
         encodings, labels = [], []
+        # FDS statistics must be estimated from RAW backbone features.
+        # Eval mode disables FDS smoothing and prevents a second pass from updating BN running stats.
+        model.eval()
         with torch.no_grad():
-            for (inputs,_, targets, _) in tqdm(train_loader):
+            for (inputs, _, targets, _) in tqdm(train_loader):
                 inputs = inputs.to(args.torch_device, non_blocking=True)
-                outputs, feature = model(inputs, targets.to(args.torch_device), epoch)
-                encodings.extend(feature.cpu().numpy())
-                labels.extend(targets.reshape(-1).cpu().numpy())
+                outputs, feature = model(inputs, targets.to(args.torch_device), epoch, reg=False)
+                encodings.append(feature.detach())
+                labels.append(targets.reshape(-1).to(args.torch_device, non_blocking=True))
 
-        encodings, labels = torch.from_numpy(np.vstack(encodings)).to(args.torch_device), torch.from_numpy(np.hstack(labels)).to(args.torch_device)
+        encodings, labels = torch.cat(encodings, 0), torch.cat(labels, 0)
         model.module.FDS.update_last_epoch_stats(epoch)
         model.module.FDS.update_running_stats(encodings, labels, epoch)
+        model.train()
 
     return losses.avg
 
