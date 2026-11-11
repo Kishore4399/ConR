@@ -1,0 +1,47 @@
+# DIR-aligned ConR training — AgeDB
+
+This branch derives from `codex/conr-agedb-imdb-reproduction`. It adds a **new** AgeDB entrypoint, `job_dir_aligned.sh`, to make ConR comparable with `Kishore4399/ImbalanceRegression@dir-pipeline` on AgeDB. The original `submission.sh` (paper-style ResNet50 reproduction) is preserved.
+
+## Run on HPC
+
+From the ConR repository root:
+
+```bash
+git fetch origin
+git checkout dir-pipeline-aligned
+sbatch --export=ALL job_dir_aligned.sh 0
+sbatch --export=ALL job_dir_aligned.sh 1
+```
+
+For five seeds:
+
+```bash
+for s in 0 1 2 3 4; do
+  sbatch --export=ALL job_dir_aligned.sh "$s"
+done
+```
+
+Activate the desired Python environment before submission or set `PYTHON_BIN=/absolute/path/to/env/bin/python`. There is no `conda.sh` initialization and no use of `dirname "$0"` within Slurm. The script uses `SLURM_SUBMIT_DIR` to resolve the checkout and validates repository and data paths. To submit elsewhere, set `CONR_ROOT=/absolute/path/to/ConR`.
+
+The AgeDB image root defaults to `/isilon/datalake/dma_research/scratch/damalab/Data/Shihua/82bd6-main`. The CSV is the **same** file referenced by `ImbalanceRegression@dir-pipeline/job_sub.sh`: `/isilon/datalake/dma_research/scratch/damalab/Tools/Rank-N-Contrast/data/agedb.csv`. Override with `AGEDB_DATA_DIR` and `AGEDB_CSV`.
+
+## Matched settings
+
+| Parameter | DIR-aligned ConR AgeDB |
+| --- | --- |
+| Backbone | ImageNet-pretrained ResNet18 (torchvision V1 weights) |
+| Input | 224×224; resize/crop with padding 16/horizontal flip; ImageNet mean/std |
+| Epochs | 300 |
+| Batch size | 64 |
+| Optimizer | Adam, learning rate 1e-3, weight decay 1e-4 |
+| Scheduler | x0.5 every 50 epochs |
+| Checkpoint | lowest validation L1 from epoch 80 onward |
+| Dataset | shared DIR AgeDB split CSV |
+| ConR-specific | original 3-view setup, window=1, temperature=0.2, beta=4, eta=0.01 |
+| Output | `checkpoint/agedb/diraligned` |
+
+The ConR regularizer has **not** been changed; only the backbone selection, ImageNet loading, normalization switch, scheduler and checkpoint eligibility were added. The custom ResNet18 uses the same standard BasicBlock topology and pooling as torchvision. The regression head is randomly initialized; the pretrained feature trunk weights are transferred by name/shape.
+
+**Important:** The separate `postadapt.py` / `conr_backbone.py` implementation still expects original ConR ResNet50 checkpoints and normalization; it was not adapted to these ResNet18 checkpoints. Do not apply it to the DIR-aligned results without first aligning its backbone/preprocessing. IMDB-WIKI was not modified by this AgeDB-only entrypoint.
+
+**Verification:** Config options and code paths were inspected; no full GPU training has been run here. Torchvision weights must be cached or downloadable on the cluster.
