@@ -1,12 +1,12 @@
 #!/bin/bash
-# Post-adapt every finished ConR run, over a grid of settings (one SLURM job each).
+# Post-adapt every ConR run, over a grid of settings (one SLURM job each).
 #   bash submit_postadapt.sh                  # AgeDB DIR-aligned runs
 #   DATASETS="agedb imdb_wiki" bash submit_postadapt.sh
 #   RUNS='*conr_lds_fds*seed0*' bash submit_postadapt.sh   # only runs whose folder matches this glob
 #   RUNS='*' bash submit_postadapt.sh         # also original (non DIR-aligned) ConR runs
 #   bash submit_postadapt.sh local            # run one after another in this shell instead of sbatch
 #   bash submit_postadapt.sh list             # only print which runs match; submit nothing
-# A run is "finished" when its training.log has the final test block. Edit the grids below.
+# Every run folder with ckpt.best.pth.tar is used; data CSV/root/normalization come from its training.log. Edit the grids below.
 # Runs are looked up in ../checkpoint/<ds>/diraligned (job_dir_aligned.sh) and ../<ds>-dir/checkpoint.
 
 # (0.1 0.5 1.0 2.0 3.0 5.0)
@@ -33,9 +33,6 @@ for ds in "${datasets[@]}"; do
         if [ ! -f "$ckpt" ]; then
             echo "  SKIP  $name (no ckpt.best.pth.tar)"; skipped=$((skipped + 1)); continue
         fi
-        if ! grep -q "Test best model on testset" "${run}/training.log" 2>/dev/null; then
-            echo "  SKIP  $name (training.log has no final test block)"; skipped=$((skipped + 1)); continue
-        fi
         echo "  FOUND $name"; found=$((found + 1))
         [ "$1" == "list" ] && continue
         for bw in "${bandwidths[@]}"; do for cl in "${condLosses[@]}"; do for w in "${l2spWeights[@]}"; do
@@ -50,4 +47,4 @@ for ds in "${datasets[@]}"; do
     done
     done
 done
-echo "Found ${found} finished run(s), skipped ${skipped}; launched ${jobs} job(s)."
+echo "Found ${found} run(s), skipped ${skipped}; launched ${jobs} job(s)."
