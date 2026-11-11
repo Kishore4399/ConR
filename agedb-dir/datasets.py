@@ -27,11 +27,12 @@ print = logging.info
 
 class AgeDB(data.Dataset):
     def __init__(self, df, data_dir, img_size, split='', reweight='none',
-                 lds=False, lds_kernel='gaussian', lds_ks=5, lds_sigma=2,aug_plus=False,reg=False,args=None):
+                 lds=False, lds_kernel='gaussian', lds_ks=5, lds_sigma=2,aug_plus=False,reg=False,args=None,imagenet_normalize=False):
         self.df = df
         self.data_dir = data_dir
         self.img_size = img_size
         self.split = split
+        self.imagenet_normalize = imagenet_normalize
         self.aug_plus = aug_plus
         self.reg=reg
         self.weights = self._prepare_weights(reweight=reweight, lds=lds, lds_kernel=lds_kernel, lds_ks=lds_ks, lds_sigma=lds_sigma)
@@ -55,13 +56,15 @@ class AgeDB(data.Dataset):
         
         
     def get_transform(self):
+        norm = (transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                if self.imagenet_normalize else transforms.Normalize([.5, .5, .5], [.5, .5, .5]))
 
         reg_aug = transforms.Compose([
                 transforms.Resize((self.img_size, self.img_size)),
                 transforms.RandomCrop(self.img_size, padding=16),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize([.5, .5, .5], [.5, .5, .5]),
+                norm,
                     
                 ])
         if self.split == 'train':
@@ -70,7 +73,7 @@ class AgeDB(data.Dataset):
             transform=transforms.Compose([
                     transforms.Resize((self.img_size, self.img_size)),
                     transforms.ToTensor(),
-                    transforms.Normalize([.5, .5, .5], [.5, .5, .5]),
+                    norm,
                 ])
 
         
