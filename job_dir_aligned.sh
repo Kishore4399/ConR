@@ -4,7 +4,8 @@
 #SBATCH --gpus=1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=50G
-#SBATCH --output=conr-dir-%j.log
+#SBATCH --output=./log/output/%x_%j.log
+#SBATCH --error=./log/error/%x_%j.log
 
 set -euo pipefail
 
