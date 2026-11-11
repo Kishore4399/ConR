@@ -10,11 +10,39 @@
 set -euo pipefail
 
 # Submit from the ConR repository root:
-#   sbatch --export=ALL job_dir_aligned.sh 0
-#   sbatch --export=ALL job_dir_aligned.sh 1
+#   sbatch --export=ALL job_dir_aligned.sh conr 0
+#   sbatch --export=ALL job_dir_aligned.sh conr_fds 0
+#   sbatch --export=ALL job_dir_aligned.sh conr_lds_fds 0
+# Backward compatible: sbatch job_dir_aligned.sh 0  (runs conr seed 0)
 # Override Python with PYTHON_BIN=/absolute/path/to/env/bin/python.
 # If submitting outside the repo, set CONR_ROOT=/absolute/path/to/ConR.
-SEED=${1:-0}
+if [[ "${1:-conr}" =~ ^[0-9]+$ ]]; then
+  METHOD=conr
+  SEED=$1
+else
+  METHOD=${1:-conr}
+  SEED=${2:-0}
+fi
+case "$METHOD" in
+  conr) EXTRA_FLAGS=() ;;
+  conr_fds)
+    EXTRA_FLAGS=(--fds)
+    ;;
+  conr_lds_fds)
+    EXTRA_FLAGS=(--fds --lds --reweight sqrt_inv)
+    ;;
+  *)
+    echo "ERROR: Unknown method '$METHOD' (conr | conr_fds | conr_lds_fds)" >&2
+    exit 2
+    ;;
+esac
+# Shared smoothing hyperparameters; flags are only activated for requested modes.
+FDS_LDS_PARAMS=(
+  --lds_kernel gaussian --lds_ks 5 --lds_sigma 2
+  --fds_kernel gaussian --fds_ks 5 --fds_sigma 2
+  --start_update 0 --start_smooth 1 --fds_mmt 0.9
+)
+echo "Method=$METHOD Seed=$SEED Extra flags: ${EXTRA_FLAGS[*]:-none}"
 REPO_ROOT=${CONR_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
 if [[ ! -f "$REPO_ROOT/agedb-dir/train.py" || ! -f "$REPO_ROOT/agedb-dir/resnet.py" ]]; then
   echo "ERROR: Expected agedb-dir/train.py under '$REPO_ROOT'." >&2
@@ -54,5 +82,6 @@ echo "Python: $(command -v "$PYTHON_BIN" || printf '%s' "$PYTHON_BIN")"
   --lr_step 50 --lr_gamma 0.5 --save_start 80 \
   --img_size 224 --workers 8 --seed "$SEED" \
   --loss l1 --conr -w 1 -t 0.2 --beta 4 -e 0.01 \
+  "${FDS_LDS_PARAMS[@]}" "${EXTRA_FLAGS[@]}" \
   --store_root checkpoint/agedb/diraligned \
-  --store_name "resnet18_conr_diraligned_seed${SEED}"
+  --store_name "resnet18_${METHOD}_diraligned_seed${SEED}"
