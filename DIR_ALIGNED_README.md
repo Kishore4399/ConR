@@ -9,15 +9,18 @@ From the ConR repository root:
 ```bash
 git fetch origin
 git checkout dir-pipeline-aligned
-sbatch --export=ALL job_dir_aligned.sh 0
-sbatch --export=ALL job_dir_aligned.sh 1
+sbatch --export=ALL job_dir_aligned.sh conr 0
+sbatch --export=ALL job_dir_aligned.sh conr_fds 0
+sbatch --export=ALL job_dir_aligned.sh conr_lds_fds 0
 ```
 
 For five seeds:
 
 ```bash
 for s in 0 1 2 3 4; do
-  sbatch --export=ALL job_dir_aligned.sh "$s"
+  for method in conr conr_fds conr_lds_fds; do
+    sbatch --export=ALL job_dir_aligned.sh "$method" "$s"
+  done
 done
 ```
 
@@ -39,6 +42,18 @@ The AgeDB image root defaults to `/isilon/datalake/dma_research/scratch/damalab/
 | Dataset | shared DIR AgeDB split CSV |
 | ConR-specific | original 3-view setup, window=1, temperature=0.2, beta=4, eta=0.01 |
 | Output | `checkpoint/agedb/diraligned` |
+
+## Experiment modes
+
+| Mode | ConR | FDS | LDS (sqrt_inv) |
+| --- | --- | --- | --- |
+| `conr` | Yes | No | No |
+| `conr_fds` | Yes | Yes | No |
+| `conr_lds_fds` | Yes | Yes | Yes |
+
+FDS and LDS share Gaussian kernel size 5, sigma 2; FDS uses start_update 0, start_smooth 1, momentum 0.9. When FDS is used, its feature statistics are collected in `eval()` mode from *raw* backbone features (no FDS smoothing), avoiding unwanted BatchNorm running-stat updates during the extra collection pass. ConR's contrastive branch retains `reg=False` so it also uses raw features. Output names include the mode and seed.
+
+The legacy invocation `sbatch job_dir_aligned.sh 0` still means `conr`, seed 0.
 
 The ConR regularizer has **not** been changed; only the backbone selection, ImageNet loading, normalization switch, scheduler and checkpoint eligibility were added. The custom ResNet18 uses the same standard BasicBlock topology and pooling as torchvision. The regression head is randomly initialized; the pretrained feature trunk weights are transferred by name/shape.
 
