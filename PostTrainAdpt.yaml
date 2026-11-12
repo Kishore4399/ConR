@@ -35,6 +35,8 @@ logger:
                        # among them; falls back to the unconstrained rule if none qualifies. Leave empty to disable.
   save_start: 0        # first epoch eligible as a candidate
   save_train_predictions: true   # also save train_before.csv / train_after.csv (source 'train' split, no augmentation)
+  eval_test_each_epoch: false    # test MAE/DC after every validation epoch (logging only; selection uses val).
+                                 # val/test _before.csv and _after.csv are always saved
 
 dataset:
   name: auto                  # source training.log dataset; or agedb | imdb_wiki

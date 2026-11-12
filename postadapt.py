@@ -469,7 +469,8 @@ class ValDCTopKCheckpoint(pl.Callback):
     meets the limit, selection falls back to the unconstrained rule (``selection`` says so).
     """
 
-    METRICS = ("val_mae", "val_dc", "val_abs_dc", "test_mae", "test_dc", "test_abs_dc")
+    METRICS = ("val_mae", "val_dc", "val_abs_dc")          # required: selection uses validation only
+    TEST_METRICS = ("test_mae", "test_dc", "test_abs_dc")  # optional (logger.eval_test_each_epoch); NaN if off
 
     def __init__(self, dirpath, filename="topk-epoch{epoch:02d}-valDC{val_dc:+.4f}-valMAE{val_mae:.3f}",
                  top_k=5, save_start=0, max_abs_dc=None):
@@ -503,6 +504,7 @@ class ValDCTopKCheckpoint(pl.Callback):
         if not all(k in metrics for k in self.METRICS):
             return
         fields = {k: float(metrics[k]) for k in self.METRICS}
+        fields.update({k: float(metrics[k]) if k in metrics else float("nan") for k in self.TEST_METRICS})
         if not (np.isfinite(fields["val_dc"]) and np.isfinite(fields["val_mae"])):
             return
         entry = {"epoch": trainer.current_epoch, **fields}
@@ -604,6 +606,7 @@ class PostTrainAdaptation(pl.LightningModule):
         self.validation_outputs = []
         self.val_slope = float("nan")   # slope of (y_pred - y_true) on y_true, last validation
         self.save_train_predictions = True  # also predict the source 'train' split (logger.save_train_predictions)
+        self.eval_test_each_epoch = False   # test metrics after every validation epoch (logger.eval_test_each_epoch)
 
         optimizer_name(self.hparams)   # fail early on an unknown model.optim.name
         self.cond_loss = str(self.hparams.get("condLoss", "w2")).lower()
@@ -827,7 +830,10 @@ class PostTrainAdaptation(pl.LightningModule):
         self.log("val_dc", val_dc, prog_bar=True)
         self.log("val_abs_dc", abs(val_dc) if np.isfinite(val_dc) else float("inf"))
 
-        # Test metrics: logged each epoch and listed for the top-k candidates; not used for selection
+        # Test metrics each epoch (logger.eval_test_each_epoch): only logged and listed for the top-k
+        # candidates, never used for selection. test_before/after.csv are saved either way.
+        if not self.eval_test_each_epoch:
+            return
         test_true, test_pred = self.get_test_prediction()
         reg_fig = plot_prediction_and_bias(test_true, test_pred)
         self.logger.experiment.log({f"Test epoch_{self.current_epoch:04d}": wandb.Image(reg_fig)})
@@ -954,6 +960,7 @@ if __name__ == "__main__":
     data_module = AgeDBPTADataModule(**config['dataset'])
     model = PostTrainAdaptation(config['model'])
     model.save_train_predictions = bool(config['logger'].get('save_train_predictions', True))
+    model.eval_test_each_epoch = bool(config['logger'].get('eval_test_each_epoch', False))
 
     ckpt_dir = str(save_dir / 'checkpoints')
     best_checkpoint_callback = ValDCTopKCheckpoint(
