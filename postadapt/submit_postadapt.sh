@@ -10,14 +10,14 @@
 # Runs are looked up in ../checkpoint/<ds>/diraligned (job_dir_aligned.sh) and ../<ds>-dir/checkpoint.
 
 # (0.1 0.5 1.0 2.0 3.0 5.0)
-bandwidths=(0.1)
+bandwidths=(0.1 0.5 1.0 2.0 3.0 5.0)
 condLosses=(w2)
 l2spWeights=(10.0)
 batchSizes=(64)
 lrs=(1e-5)
 
 datasets=(${DATASETS:-agedb})
-runs_glob=${RUNS:-"*diraligned*"}
+runs_glob=${RUNS:-"agedb_resnet18_resnet18_conr_diraligned_seed*ConR_4.0_w=1.0_adam_l1_0.001_64_*"}
 
 cd "$(dirname "$0")" && mkdir -p log/output log/error
 

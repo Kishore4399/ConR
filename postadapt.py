@@ -935,11 +935,10 @@ if __name__ == "__main__":
     print(OmegaConf.to_yaml(config))
 
     # Results go next to the pretrained checkpoint
-    folder = run_name(config['model'], config['dataset']['batch_size']).replace(':', '=')
+    folder = run_name(config['model'], config['dataset']['batch_size'])
     balance = config['dataset'].get('balance') or {}
     if balance.get('enabled', False):   # unbalanced runs keep their old folder names
         folder += f"_balance=a{balance.get('alpha', 1.0)}b{balance.get('num_bins', 10)}"
-    folder += f"_sourceAligned_{config.dataset.normalization}"
     save_dir = (Path(config['logger']['save_dir']).expanduser().resolve()
                 if config['logger'].get('save_dir')
                 else Path(config['model']['pretrained']).resolve().parent / folder)
