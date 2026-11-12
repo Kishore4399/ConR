@@ -61,3 +61,34 @@ The ConR regularizer has **not** been changed; only the backbone selection, Imag
 
 **Verification:** Config options and code paths were inspected; no full GPU training has been run here. Torchvision weights must be cached or downloadable on the cluster.
 
+
+# DIR-aligned ConR training — IMDB-WIKI
+
+`job_dir_aligned_imdb.sh` is the IMDB-WIKI counterpart of `job_dir_aligned.sh`. It matches `Kishore4399/ImbalanceRegression@dir-pipeline/job_sub.sh imdb_wiki`. `imdb-wiki-dir/train.py` got the same changes as the aligned `agedb-dir/train.py`: `--imagenet_pretrained` with the ImageNet normalization switch, a ResNet18 option, `--lr_step`, `--lr_gamma`, `--save_start`, and FDS statistics collected in `eval()` mode from raw features. It also gained `--amp`.
+
+```bash
+for s in 0 1 2 3 4; do
+  for method in conr conr_fds conr_lds_fds; do
+    sbatch --export=ALL job_dir_aligned_imdb.sh "$method" "$s"
+  done
+done
+```
+
+Override the paths with `IMDB_DATA_DIR` and `IMDB_CSV`. Output goes to `checkpoint/imdb_wiki/diraligned`.
+
+| Parameter | DIR-aligned ConR IMDB-WIKI |
+| --- | --- |
+| Backbone | ImageNet-pretrained ResNet50 (torchvision V2 weights) |
+| Input | 224×224; resize/crop with padding 16/horizontal flip; ImageNet mean/std |
+| Epochs | 90 |
+| Batch size | 256 (evaluation 256) |
+| Optimizer | Adam, learning rate 1e-3, weight decay 1e-4 |
+| Scheduler | ×0.5 every 30 epochs |
+| Checkpoint | lowest validation L1 from epoch 20 onward |
+| Precision | mixed (`--amp`); features, losses and ConR in float32 |
+| Dataset | shared DIR IMDB-WIKI split CSV |
+| ConR-specific | original 3-view setup, window=1, temperature=0.2, beta=4, eta=0.01 (as `submission.sh`) |
+
+**Temperature note.** `ConR()` in `imdb-wiki-dir/loss.py` uses the `-t` it is given, so IMDB-WIKI really runs at 0.2. `ConR()` in `agedb-dir/loss.py` overwrites `t` with 0.07 internally, so the AgeDB runs use 0.07 whatever `-t` says. The loss code was not changed here.
+
+The partition list leaves out `gpu-mig`: each step forwards 3 × 256 images through ResNet50.

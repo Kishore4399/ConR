@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader
 
 from loss import *
 from utils import *
-from resnet import resnet50
+from resnet import resnet18, resnet50, load_imagenet_backbone
 from datasets import IMDBWIKI
 
 import os
@@ -72,7 +72,7 @@ parser.add_argument('--data_dir', type=str, default='/shared-data/imdb-wiki-dir/
 parser.add_argument('--data_csv', default=None, help='DIR split CSV (defaults to the CSV in data_dir)')
 parser.add_argument('--device', choices=['cuda', 'cpu'], default='cuda')
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--model', type=str, default='resnet50', help='model name')
+parser.add_argument('--model', type=str, default='resnet50', choices=['resnet18', 'resnet50'], help='model name')
 parser.add_argument('--store_root', type=str, default='checkpoint', help='root path for storing checkpoints, logs')
 parser.add_argument('--store_name', type=str, default='', help='experiment store name')
 parser.add_argument('--gpu', type=int, default=None)
@@ -82,7 +82,12 @@ parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rat
 parser.add_argument('--epoch', type=int, default=90, help='number of epochs to train')
 parser.add_argument('--momentum', type=float, default=0.9, help='optimizer momentum')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='optimizer weight decay')
-parser.add_argument('--schedule', type=int, nargs='*', default=[60, 80], help='lr schedule (when to drop lr by 10x)')
+parser.add_argument('--schedule', type=int, nargs='*', default=[60, 80], help='LR decay milestone epochs')
+parser.add_argument('--lr_step', type=int, default=None, help='step LR schedule interval; DIR IMDB-WIKI uses 30')
+parser.add_argument('--lr_gamma', type=float, default=0.1, help='LR decay multiplicative factor; DIR uses 0.5')
+parser.add_argument('--save_start', type=int, default=1, help='first 1-based epoch eligible for best validation checkpoint')
+parser.add_argument('--imagenet_pretrained', action='store_true', help='initialize ResNet backbone from ImageNet weights and normalize accordingly')
+parser.add_argument('--amp', action='store_true', help='mixed precision on CUDA (losses and ConR stay in float32)')
 parser.add_argument('--batch_size', type=int, default=256, help='batch size')
 parser.add_argument('--print_freq', type=int, default=10, help='logging frequency')
 parser.add_argument('--img_size', type=int, default=224, help='image size used in training')
@@ -147,6 +152,7 @@ def main():
     if args.device == 'cuda' and not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable. Use --device cpu for a local smoke test.")
     args.torch_device = torch.device(args.device)
+    args.amp_on = args.amp and args.device == 'cuda'
     if args.gpu is not None:
         if args.device != 'cuda':
             parser.error('--gpu requires --device cuda')
@@ -172,10 +178,10 @@ def main():
             raise FileNotFoundError(f"{split} image is missing: {first_image}")
     train_labels = df_train['age']
 
-    train_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train',
+    train_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train', imagenet_normalize=args.imagenet_pretrained,
                              reweight=args.reweight, lds=args.lds, lds_kernel=args.lds_kernel, lds_ks=args.lds_ks, lds_sigma=args.lds_sigma)
-    val_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val')
-    test_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test')
+    val_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val', imagenet_normalize=args.imagenet_pretrained)
+    test_dataset = IMDBWIKI(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test', imagenet_normalize=args.imagenet_pretrained)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.workers, pin_memory=args.device == 'cuda', drop_last=False)
@@ -189,10 +195,13 @@ def main():
 
     # Model
     print('=====> Building model...')
-    model = resnet50(fds=args.fds, bucket_num=args.bucket_num, bucket_start=args.bucket_start,
+    model = {'resnet18': resnet18, 'resnet50': resnet50}[args.model](fds=args.fds, bucket_num=args.bucket_num, bucket_start=args.bucket_start,
                      start_update=args.start_update, start_smooth=args.start_smooth,
                      kernel=args.fds_kernel, ks=args.fds_ks, sigma=args.fds_sigma, momentum=args.fds_mmt,
                      return_features=(args.regularization_weight > 0))
+    if args.imagenet_pretrained:
+        transferred = load_imagenet_backbone(model, args.model)
+        print(f'Loaded ImageNet pretrained {args.model} backbone: {transferred} matching tensors')
     device_ids = [args.gpu] if args.gpu is not None else None
     model = torch.nn.DataParallel(model.to(args.torch_device), device_ids=device_ids)
 
@@ -249,15 +258,17 @@ def main():
             raise FileNotFoundError(f"Resume checkpoint does not exist: {args.resume}")
 
     cudnn.benchmark = True
+    scaler = torch.cuda.amp.GradScaler() if args.amp_on else None
 
     for epoch in range(args.start_epoch, args.epoch):
         adjust_learning_rate(optimizer, epoch, args)
-        train_loss = train(train_loader, model, optimizer, epoch)
+        train_loss = train(train_loader, model, optimizer, epoch, scaler)
         val_loss_mse, val_loss_l1, val_loss_gmean, _ = validate(val_loader, model, train_labels=train_labels)
 
         loss_metric = val_loss_mse if args.loss == 'mse' else val_loss_l1
-        is_best = loss_metric < args.best_loss
-        args.best_loss = min(loss_metric, args.best_loss)
+        is_best = epoch + 1 >= args.save_start and loss_metric < args.best_loss
+        if epoch + 1 >= args.save_start:
+            args.best_loss = min(loss_metric, args.best_loss)
 
 
 
@@ -290,7 +301,7 @@ def main():
             writer.writerow([label, shot_dict[shot]['l1'], shot_dict[shot]['gmean']])
 
 
-def train(train_loader, model, optimizer, epoch):
+def train(train_loader, model, optimizer, epoch, scaler=None):
     batch_time = AverageMeter('Time', ':6.2f')
     data_time = AverageMeter('Data', ':6.4f')
     losses = AverageMeter(f'Loss ({args.loss.upper()})', ':.3f')
@@ -323,9 +334,13 @@ def train(train_loader, model, optimizer, epoch):
             imgs_c = torch.cat(imgs_c, dim=0).to(args.torch_device, non_blocking=True)
             targets_c = torch.cat((targets, targets), dim=0)
             weights_c = torch.cat((weights, weights), dim=0)
-            outputs_c, features_c = model(imgs_c, targets=targets_c, epoch=epoch, reg=False)
+            with torch.autocast(device_type=args.torch_device.type, enabled=args.amp_on):
+                outputs_c, features_c = model(imgs_c, targets=targets_c, epoch=epoch, reg=False)
+            outputs_c = outputs_c.float()  # no-op without --amp
 
-        outputs, features = model(inputs, targets, epoch)
+        with torch.autocast(device_type=args.torch_device.type, enabled=args.amp_on):
+            outputs, features = model(inputs, targets, epoch)
+        outputs = outputs.float()  # losses in float32 (no-op without --amp)
 
         
         loss = globals()[f"weighted_{args.loss}_loss"](outputs, targets, weights)
@@ -348,8 +363,13 @@ def train(train_loader, model, optimizer, epoch):
 
 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         batch_time.update(time.time() - end)
         end = time.time()
@@ -359,16 +379,21 @@ def train(train_loader, model, optimizer, epoch):
     if args.fds and epoch >= args.start_update:
         print(f"Create Epoch [{epoch}] features of all training data...")
         encodings, labels = [], []
+        # FDS statistics must be estimated from RAW backbone features.
+        # Eval mode disables FDS smoothing and prevents a second pass from updating BN running stats.
+        model.eval()
         with torch.no_grad():
             for (inputs, _, targets, _) in tqdm(train_loader):
                 inputs = inputs.to(args.torch_device, non_blocking=True)
-                outputs, feature = model(inputs, targets.to(args.torch_device), epoch)
-                encodings.extend(feature.cpu().numpy())
-                labels.extend(targets.reshape(-1).cpu().numpy())
+                with torch.autocast(device_type=args.torch_device.type, enabled=args.amp_on):
+                    outputs, feature = model(inputs, targets.to(args.torch_device), epoch, reg=False)
+                encodings.append(feature.detach())
+                labels.append(targets.reshape(-1).to(args.torch_device, non_blocking=True))
 
-        encodings, labels = torch.from_numpy(np.vstack(encodings)).to(args.torch_device), torch.from_numpy(np.hstack(labels)).to(args.torch_device)
+        encodings, labels = torch.cat(encodings, 0), torch.cat(labels, 0)
         model.module.FDS.update_last_epoch_stats(epoch)
         model.module.FDS.update_running_stats(encodings, labels, epoch)
+        model.train()
 
     return losses.avg
 
@@ -395,7 +420,9 @@ def validate(val_loader, model, train_labels=None, prefix='Val'):
         
         for idx, (inputs,targets) in enumerate(val_loader):
             inputs, targets = inputs.to(args.torch_device, non_blocking=True), targets.to(args.torch_device, non_blocking=True)
-            outputs,_ = model(inputs)
+            with torch.autocast(device_type=args.torch_device.type, enabled=args.amp_on):
+                outputs,_ = model(inputs)
+            outputs = outputs.float()
 
             preds.extend(outputs.data.cpu().numpy())
             labels.extend(targets.data.cpu().numpy())

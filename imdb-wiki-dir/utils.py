@@ -94,7 +94,9 @@ def prepare_folders(args):
 def adjust_learning_rate(optimizer, epoch, args):
     lr = args.lr
     for milestone in args.schedule:
-        lr *= 0.1 if epoch >= milestone else 1.
+        lr *= args.lr_gamma if epoch >= milestone else 1.
+    if args.lr_step is not None:
+        lr = args.lr * (args.lr_gamma ** (epoch // args.lr_step))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
