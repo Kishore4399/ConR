@@ -104,9 +104,9 @@ python postadapt.py -c PostTrainAdpt.yaml \
     trainer.max_steps=10000
 ```
 
-The default uses labeled validation images, a frozen head, W2 conditional error matching, L2-SP weight 1, and a source error trend fitted on the adaptation split. Validation also selects the adapted checkpoint, following your source workflow. A custom CSV can supply a separate `dataset.adaptation_split`. Test metrics are reported independently of checkpoint selection.
+The default uses labeled validation images, `optim.param: all` (encoder and head trained, L2-SP on both), W2 conditional error matching, L2-SP weight 1, and a source error trend fitted on the adaptation split. Validation also selects the adapted checkpoint, following your source workflow. A custom CSV can supply a separate `dataset.adaptation_split`. Test metrics are reported independently of checkpoint selection.
 
-W2/L1/KL/symmetric-KL losses, label-balanced sampling, cosine learning-rate scheduling, source bias correction, and validation DC/MAE selection are retained. `model.optim.param=all` also trains the head. A separate frozen source head keeps reference predictions stable in that mode.
+W2/L1/KL/symmetric-KL losses, label-balanced sampling, cosine learning-rate scheduling, source bias correction, and validation DC/MAE selection are retained. `model.optim.param=all` (the default) also trains the head, and L2-SP then covers the head as well as the encoder. A separate frozen source head keeps reference predictions stable in that mode.
 
 Evaluation resizes to 224×224 and inherits the source normalization: ImageNet statistics for `--imagenet_pretrained` runs, mean/std 0.5 for original ConR. Adaptation uses the same normalization and defaults to crop and flip. Full precision is the default. Override `trainer.precision=bf16-mixed` on supported hardware.
 

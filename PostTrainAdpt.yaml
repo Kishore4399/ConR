@@ -16,8 +16,8 @@ model:
       
   optim:
     name: adam                 # adam | sgd (momentum 0.9) | adamw; added to the output folder name
-    param: backbone            # backbone: all encoder weights | backbone_bn: BatchNorm affine only (ResNets)
-                               # | backbone_norm: BatchNorm + LayerNorm affine (use this for ViTs instead of backbone_bn)
+    param: all                 # all: encoder and head (L2-SP on both) | backbone: all encoder weights
+                               # | backbone_bn: BatchNorm affine only (ResNets) | backbone_norm: BatchNorm + LayerNorm affine (ViTs)
     lr: 0.0005
     weight_decay: 0.           # keep 0: L2-SP replaces weight decay
 

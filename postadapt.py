@@ -618,10 +618,11 @@ class PostTrainAdaptation(pl.LightningModule):
 
         self.load_pretrained_weights()
 
-        # Trainable parameters (the regression head stays frozen):
+        # Trainable parameters (the regression head stays frozen unless "all"; L2-SP then covers it too):
         #   backbone:      all encoder weights
         #   backbone_bn:   BatchNorm affine parameters only (ResNets)
         #   backbone_norm: BatchNorm and LayerNorm affine parameters (ResNets and ViTs)
+        #   all:           encoder and regression head (default)
         mode = self.hparams["optim"]["param"]
         norm_types = {"backbone_bn": (_BatchNorm,), "backbone_norm": (_BatchNorm, nn.LayerNorm, nn.GroupNorm)}
         self.requires_grad_(False)
@@ -634,7 +635,7 @@ class PostTrainAdaptation(pl.LightningModule):
                 if isinstance(m, norm_types[mode]) and getattr(m, "weight", None) is not None:
                     m.requires_grad_(True)
         else:
-            raise ValueError(f"Unknown optim.param: {mode} (backbone, backbone_bn or backbone_norm)")
+            raise ValueError(f"Unknown optim.param: {mode} (backbone, backbone_bn, backbone_norm or all)")
         if not any(p.requires_grad for p in self.encoder.parameters()):
             raise ValueError(f"optim.param={mode} leaves nothing to train in this backbone "
                              f"(ViTs have LayerNorm, not BatchNorm: use backbone_norm or backbone)")
@@ -661,6 +662,7 @@ class PostTrainAdaptation(pl.LightningModule):
     def collect_source_predictions(self, dataloader, desc="Source predictions"):
         """Labels and frozen source-model predictions over a dataloader (eval mode, no gradients)."""
         self.src_encoder.eval()
+        self.src_fc.eval()
         y_true, y_pred = [], []
         for batch in tqdm(dataloader, desc=desc):
             x = batch["image"].to(self.device, non_blocking=True)
@@ -764,6 +766,7 @@ class PostTrainAdaptation(pl.LightningModule):
         # (Lightning puts every submodule back in train mode after each validation)
         self.encoder.eval()
         self.src_encoder.eval()
+        self.src_fc.eval()
 
         x, y = batch["image"], batch["label"].flatten().float()
         with torch.no_grad():
@@ -783,7 +786,8 @@ class PostTrainAdaptation(pl.LightningModule):
         mask = effective_neighbors(weights) >= self.min_neighbors if self.min_neighbors > 0 else None
         cond_loss = gaussian_matching_loss(mu_t, sigma_t, sigma_ref, self.cond_loss, mask=mask)
 
-        l2sp = l2sp_penalty(self.encoder, self.src_encoder)
+        # The head term is zero unless optim.param=all trains the head (only trainable params count).
+        l2sp = l2sp_penalty(self.encoder, self.src_encoder) + l2sp_penalty(self.fc, self.src_fc)
 
         loss = cond_loss + self.hparams["l2spWeight"] * l2sp
 
