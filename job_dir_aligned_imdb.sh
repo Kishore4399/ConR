@@ -10,7 +10,9 @@
 
 set -euo pipefail
 
-# IMDB-WIKI counterpart of job_dir_aligned.sh (AgeDB). Submit from the ConR repository root:
+# IMDB-WIKI with the shared DIR recipe (same as SLR's and RankSim's dirrecipe runs), from scratch.
+# Submit from the ConR repository root:
+#   sbatch --export=ALL job_dir_aligned_imdb.sh vanilla 0
 #   sbatch --export=ALL job_dir_aligned_imdb.sh conr 0
 #   sbatch --export=ALL job_dir_aligned_imdb.sh conr_fds 0
 #   sbatch --export=ALL job_dir_aligned_imdb.sh conr_lds_fds 0
@@ -19,15 +21,16 @@ set -euo pipefail
 METHOD=${1:-conr}
 SEED=${2:-0}
 case "$METHOD" in
-  conr) EXTRA_FLAGS=() ;;
+  vanilla) EXTRA_FLAGS=() ;;
+  conr) EXTRA_FLAGS=(--conr) ;;
   conr_fds)
-    EXTRA_FLAGS=(--fds)
+    EXTRA_FLAGS=(--conr --fds)
     ;;
   conr_lds_fds)
-    EXTRA_FLAGS=(--fds --lds --reweight sqrt_inv)
+    EXTRA_FLAGS=(--conr --fds --lds --reweight sqrt_inv)
     ;;
   *)
-    echo "ERROR: Unknown method '$METHOD' (conr | conr_fds | conr_lds_fds)" >&2
+    echo "ERROR: Unknown method '$METHOD' (vanilla | conr | conr_fds | conr_lds_fds)" >&2
     exit 2
     ;;
 esac
@@ -66,18 +69,24 @@ echo "Repo: $PWD"
 echo "Python: $(command -v "$PYTHON_BIN" || printf '%s' "$PYTHON_BIN")"
 "$PYTHON_BIN" -c 'import torch, torchvision; print("PyTorch:", torch.__version__, "Torchvision:", torchvision.__version__, "CUDA:", torch.cuda.is_available())'
 
-# Match ImbalanceRegression@dir-pipeline/job_sub.sh imdb_wiki: ImageNet ResNet50 (V2 weights),
-# 90 epochs, Adam, batch 256, LR 1e-3, WD 1e-4, step LR x0.5 every 30 epochs,
-# best val MAE >= epoch 20, mixed precision.
-# Preserve ConR original three-view augmentation and regularization settings (as submission.sh).
+# Shared DIR recipe (Yang et al., ICML 2021), identical to SLR's and RankSim's IMDB-WIKI jobs:
+#   ResNet50 from scratch (no --imagenet_pretrained, so DIR normalisation mean/std 0.5),
+#   90 epochs, batch 256, Adam LR 1e-3 with no weight decay (the public ConR, RankSim and DIR
+#   code pass weight decay only to SGD), LR x0.1 at epochs 60 and 80, L1 loss, best val MAE
+#   over all epochs, plain shuffled batches. The ConR paper itself used batch 64 and LR 2.5e-4.
+# ConR on top (paper App. A.4): two extra augmented views per image, window w 1,
+#   temperature 0.2 (the public README command leaves -t at its 0.07 default), beta 4, eta 0.01.
+#   ConR runs three forward passes per step (original + 2 views), so batch 256 needs a full
+#   GPU; it will not fit a MIG slice.
+# Kept from this pipeline: mixed precision (losses and ConR stay float32).
 "$PYTHON_BIN" imdb-wiki-dir/train.py \
   --dataset imdb_wiki --data_dir "$DATA_DIR" --data_csv "$CSV" \
-  --model resnet50 --imagenet_pretrained \
+  --model resnet50 \
   --epoch 90 --batch_size 256 --lr 1e-3 \
-  --optimizer adam --weight_decay 1e-4 \
-  --lr_step 30 --lr_gamma 0.5 --save_start 20 --amp \
+  --optimizer adam --weight_decay 0 \
+  --schedule 60 80 --lr_gamma 0.1 --save_start 1 --amp \
   --img_size 224 --workers 8 --seed "$SEED" \
-  --loss l1 --conr -w 1 -t 0.2 --beta 4 -e 0.01 \
+  --loss l1 -w 1 -t 0.2 --beta 4 -e 0.01 \
   "${FDS_LDS_PARAMS[@]}" "${EXTRA_FLAGS[@]}" \
-  --store_root checkpoint/imdb_wiki/diraligned \
-  --store_name "resnet50_${METHOD}_diraligned_seed${SEED}"
+  --store_root checkpoint/imdb_wiki/dirrecipe \
+  --store_name "resnet50_${METHOD}_dirrecipe_seed${SEED}"
