@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-# IMDB-WIKI with the shared DIR recipe (same as SLR's and RankSim's dirrecipe runs), from scratch.
+# IMDB-WIKI reproduction of the ConR paper (Keramati et al., ICLR 2024), from scratch.
 # Submit from the ConR repository root:
 #   sbatch --export=ALL job_dir_aligned_imdb.sh vanilla 0
 #   sbatch --export=ALL job_dir_aligned_imdb.sh conr 0
@@ -69,24 +69,25 @@ echo "Repo: $PWD"
 echo "Python: $(command -v "$PYTHON_BIN" || printf '%s' "$PYTHON_BIN")"
 "$PYTHON_BIN" -c 'import torch, torchvision; print("PyTorch:", torch.__version__, "Torchvision:", torchvision.__version__, "CUDA:", torch.cuda.is_available())'
 
-# Shared DIR recipe (Yang et al., ICML 2021), identical to SLR's and RankSim's IMDB-WIKI jobs:
-#   ResNet50 from scratch (no --imagenet_pretrained, so DIR normalisation mean/std 0.5),
-#   90 epochs, batch 256, Adam LR 1e-3 with no weight decay (the public ConR, RankSim and DIR
-#   code pass weight decay only to SGD), LR x0.1 at epochs 60 and 80, L1 loss, best val MAE
-#   over all epochs, plain shuffled batches. The ConR paper itself used batch 64 and LR 2.5e-4.
-# ConR on top (paper App. A.4): two extra augmented views per image, window w 1,
-#   temperature 0.2 (the public README command leaves -t at its 0.07 default), beta 4, eta 0.01.
-#   ConR runs three forward passes per step (original + 2 views), so batch 256 needs a full
-#   GPU; it will not fit a MIG slice.
-# Kept from this pipeline: mixed precision (losses and ConR stay float32).
+# ConR paper, App. A.4 (age estimation), as stated in the text:
+#   ResNet50 encoder from scratch + one linear regression layer (DIR normalisation mean/std 0.5),
+#   batch 64, Adam LR 2.5e-4, weight decay 1e-4, LR x0.1 at epochs 60 and 80, 90 epochs,
+#   L1 regression loss (alpha 1), random crop + horizontal flip, two augmented views for ConR,
+#   window w 1, temperature 0.2, beta 4, eta 0.01. Full precision, as in the paper.
+#   Best epoch by validation MAE over all epochs, then tested.
+# Where the public code differs from the text (see DIR_ALIGNED_README.md): its Adam gets no
+#   weight decay, its README command leaves -t at 0.07, and it adds beta * L_ConR twice.
+#   Override WD=0 or TEMP=0.07 to try the code's behaviour.
+WD=${WD:-1e-4}
+TEMP=${TEMP:-0.2}
 "$PYTHON_BIN" imdb-wiki-dir/train.py \
   --dataset imdb_wiki --data_dir "$DATA_DIR" --data_csv "$CSV" \
   --model resnet50 \
-  --epoch 90 --batch_size 256 --lr 1e-3 \
-  --optimizer adam --weight_decay 0 \
-  --schedule 60 80 --lr_gamma 0.1 --save_start 1 --amp \
+  --epoch 90 --batch_size 64 --lr 2.5e-4 \
+  --optimizer adam --weight_decay "$WD" \
+  --schedule 60 80 --lr_gamma 0.1 --save_start 1 \
   --img_size 224 --workers 8 --seed "$SEED" \
-  --loss l1 -w 1 -t 0.2 --beta 4 -e 0.01 \
+  --loss l1 -w 1 -t "$TEMP" --beta 4 -e 0.01 \
   "${FDS_LDS_PARAMS[@]}" "${EXTRA_FLAGS[@]}" \
-  --store_root checkpoint/imdb_wiki/dirrecipe \
-  --store_name "resnet50_${METHOD}_dirrecipe_seed${SEED}"
+  --store_root checkpoint/imdb_wiki/paper \
+  --store_name "resnet50_${METHOD}_paper_wd${WD}_t${TEMP}_seed${SEED}"
