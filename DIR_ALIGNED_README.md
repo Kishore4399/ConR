@@ -91,8 +91,8 @@ done
 Target (paper Table 2, ConR-only): MAE 7.33 all / 6.75 many / 11.99 medium / 22.22 few; GM 4.02 / 3.79 / 6.98 / 12.95. The paper's own ablations (Tables 12 and 16) report about 7.84 for the same setting, so expect a result somewhere in that range.
 
 **Where the public code differs from the paper text.** This job follows the text. The public `imdb-wiki-dir/train.py` (BorealisAI/ConR) differs in three ways:
-- Its Adam call takes no weight decay (the flag only reaches SGD). Run with `WD=0` to match it.
-- Its README command leaves `-t` at the default 0.07 instead of 0.2. Run with `TEMP=0.07` to match it.
+- Its Adam call takes no weight decay (the flag only reaches SGD). Run with `CONR_WD=0` to match it.
+- Its README command leaves `-t` at the default 0.07 instead of 0.2. Run with `CONR_TEMP=0.07` to match it.
 - It adds `beta * L_ConR` to the loss twice (effective weight 8). This fork adds it once, as the paper describes; reproducing the double-add needs `--beta 8`.
 
 The pushing weight in `loss.py` (unchanged from the public code) is `w_j * exp(eta * |y_j - y_q|)` rather than the paper's linear `eta * MAE`. Without reweighting, `w_j` is 1.

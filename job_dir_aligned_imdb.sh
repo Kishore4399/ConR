@@ -77,17 +77,17 @@ echo "Python: $(command -v "$PYTHON_BIN" || printf '%s' "$PYTHON_BIN")"
 #   Best epoch by validation MAE over all epochs, then tested.
 # Where the public code differs from the text (see DIR_ALIGNED_README.md): its Adam gets no
 #   weight decay, its README command leaves -t at 0.07, and it adds beta * L_ConR twice.
-#   Override WD=0 or TEMP=0.07 to try the code's behaviour.
-WD=${WD:-1e-4}
-TEMP=${TEMP:-0.2}
+#   Override CONR_WD=0 or CONR_TEMP=0.07 to try the code's behaviour.
+CONR_WD=${CONR_WD:-1e-4}
+CONR_TEMP=${CONR_TEMP:-0.2}
 "$PYTHON_BIN" imdb-wiki-dir/train.py \
   --dataset imdb_wiki --data_dir "$DATA_DIR" --data_csv "$CSV" \
   --model resnet50 \
   --epoch 90 --batch_size 64 --lr 2.5e-4 \
-  --optimizer adam --weight_decay "$WD" \
+  --optimizer adam --weight_decay "$CONR_WD" \
   --schedule 60 80 --lr_gamma 0.1 --save_start 1 \
   --img_size 224 --workers 8 --seed "$SEED" \
-  --loss l1 -w 1 -t "$TEMP" --beta 4 -e 0.01 \
+  --loss l1 -w 1 -t "$CONR_TEMP" --beta 4 -e 0.01 \
   "${FDS_LDS_PARAMS[@]}" "${EXTRA_FLAGS[@]}" \
   --store_root checkpoint/imdb_wiki/paper \
-  --store_name "resnet50_${METHOD}_paper_wd${WD}_t${TEMP}_seed${SEED}"
+  --store_name "resnet50_${METHOD}_paper_wd${CONR_WD}_t${CONR_TEMP}_seed${SEED}"
