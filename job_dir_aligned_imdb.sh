@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=ConR_DIR_Aligned_IMDB
-#SBATCH --partition=defq,gpu,gpu-h100
+#SBATCH --partition=gpu-h100,gpu-mig
 #SBATCH --time=999:00:00
 #SBATCH --gpus=1
 #SBATCH --cpus-per-gpu=8
