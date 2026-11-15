@@ -64,6 +64,12 @@ def resolve_source_data(dataset, checkpoint):
         if source.get("dataset") not in ("agedb", "imdb_wiki"):
             raise ValueError("Restore source training.log or set dataset.name explicitly")
         dataset["name"] = source["dataset"]
+    if dataset.get("transforms", "auto") == "auto":
+        # train.py --aug: absent in logs from before the option existed, which used ConR's transforms
+        dataset["transforms"] = source.get("aug", "dir") if source else (
+            "pta" if "_augpta_" in checkpoint.parent.name else "dir")
+    if dataset["transforms"] not in ("pta", "dir"):
+        raise ValueError("dataset.transforms must be auto, pta, or dir")
     if dataset.get("normalization", "auto") == "auto":
         if not source:
             raise ValueError("Cannot infer source normalization: restore training.log or set "

@@ -100,3 +100,17 @@ The pushing weight in `loss.py` (unchanged from the public code) is `w_j * exp(e
 **Temperature note.** `ConR()` in `imdb-wiki-dir/loss.py` uses the `-t` it is given. `ConR()` in `agedb-dir/loss.py` overwrites `t` with 0.07 internally, so the AgeDB runs use 0.07 whatever `-t` says. The loss code was not changed here.
 
 **Memory.** Each ConR step forwards 3 × 64 images through ResNet50 in fp32.
+
+# Augmentation: PostTrainingAdpt transforms (default)
+
+`agedb-dir/train.py` and `imdb-wiki-dir/train.py` take `--aug pta|dir`, default **`pta`**: exactly the transforms of `Kishore4399/PostTrainingAdpt@condition-variance-cosine` (`utils.get_transforms`, `aug="crop,flip,color,grayscale"`). All three ConR inputs (the regression image and the two contrastive views) use it.
+
+| | `pta` (default) | `dir` (previous behaviour) |
+| --- | --- | --- |
+| Train | `RandomResizedCrop(224, scale=(0.2, 1))`, `RandomHorizontalFlip`, `RandomApply([ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8)`, `RandomGrayscale(0.2)` | `Resize((224, 224))`, `RandomCrop(224, padding=16)`, `RandomHorizontalFlip` |
+| Val / test | `Resize(256)`, `CenterCrop(224)` | `Resize((224, 224))` |
+| Normalisation | mean/std 0.5, also with `--imagenet_pretrained` (as in PostTrainingAdpt) | ImageNet with `--imagenet_pretrained`, else 0.5 |
+
+`pta` runs get `_augpta` before the timestamp in their run name. Postadapt reads `--aug` from the source `training.log` (`dataset.transforms: auto`) and then uses the same preset for the adaptation batches, the source bias fit and val/test; `dataset.aug` only applies to `dir`. Runs trained before `--aug` existed resolve to `dir`, so existing checkpoints keep their own preprocessing.
+
+The ConR paper (and the IMDB-WIKI paper-reproduction job) used the `dir` transforms: pass `--aug dir` to reproduce the paper exactly.

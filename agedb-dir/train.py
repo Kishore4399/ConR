@@ -93,6 +93,10 @@ parser.add_argument('--lr_step', type=int, default=None, help='step LR schedule 
 parser.add_argument('--lr_gamma', type=float, default=0.1, help='LR decay multiplicative factor; DIR uses 0.5')
 parser.add_argument('--save_start', type=int, default=1, help='first 1-based epoch eligible for best validation checkpoint')
 parser.add_argument('--imagenet_pretrained', action='store_true', help='initialize ResNet backbone from ImageNet weights and normalize accordingly')
+parser.add_argument('--aug', choices=['pta', 'dir'], default='pta',
+                    help='pta: PostTrainingAdpt condition-variance-cosine transforms (RandomResizedCrop 0.2-1, flip, color jitter, '
+                         'grayscale; eval Resize 256 + CenterCrop 224; mean/std 0.5 even with --imagenet_pretrained). '
+                         'dir: the original ConR / DIR transforms')
 parser.add_argument('--batch_size', type=int, default=64, help='batch size')
 parser.add_argument('--print_freq', type=int, default=10, help='logging frequency')
 parser.add_argument('--img_size', type=int, default=224, help='image size used in training')
@@ -142,7 +146,7 @@ if args.regularization_weight > 0:
 args.store_name = f"{args.dataset}_{args.model}{args.store_name}_{args.optimizer}_{args.loss}_{args.lr}_{args.batch_size}"
 
 timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-args.store_name = args.store_name + '_' + timestamp
+args.store_name = args.store_name + ('_augpta' if args.aug == 'pta' else '') + '_' + timestamp
 
 prepare_folders(args)
 
@@ -190,10 +194,10 @@ def main():
 
     
 
-    train_dataset = AgeDB(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train', imagenet_normalize=args.imagenet_pretrained,
+    train_dataset = AgeDB(data_dir=args.data_dir, df=df_train, img_size=args.img_size, split='train', imagenet_normalize=args.imagenet_pretrained, aug=args.aug,
                           reweight=args.reweight, lds=args.lds, lds_kernel=args.lds_kernel, lds_ks=args.lds_ks, lds_sigma=args.lds_sigma)
-    val_dataset = AgeDB(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val', imagenet_normalize=args.imagenet_pretrained)
-    test_dataset = AgeDB(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test', imagenet_normalize=args.imagenet_pretrained)
+    val_dataset = AgeDB(data_dir=args.data_dir, df=df_val, img_size=args.img_size, split='val', imagenet_normalize=args.imagenet_pretrained, aug=args.aug)
+    test_dataset = AgeDB(data_dir=args.data_dir, df=df_test, img_size=args.img_size, split='test', imagenet_normalize=args.imagenet_pretrained, aug=args.aug)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.workers, pin_memory=args.device == 'cuda', drop_last=False)

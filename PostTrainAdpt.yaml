@@ -47,7 +47,8 @@ dataset:
   adaptation_split: val
   num_workers: 8
   label_name: 'age'
-  aug: "crop,flip"
+  transforms: auto            # source training.log --aug: pta (PostTrainingAdpt condition-variance-cosine) | dir (ConR's own)
+  aug: "crop,flip"            # adaptation augmentation list, used only with transforms: dir
   batch_size: 64               # added to the output folder name (_bsz:<batch_size>)
   balance:                     # label-balanced adaptation batches (training only; val/test stay natural)
     enabled: false

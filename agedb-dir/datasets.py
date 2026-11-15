@@ -25,14 +25,44 @@ import torch
 print = logging.info
 
 
+def pta_transform(train, img_size=224):
+    """PostTrainingAdpt (branch condition-variance-cosine) utils.get_transforms, aug="crop,flip,color,grayscale".
+
+    Copied operation for operation, including its mean/std 0.5 normalisation (also used there for
+    ImageNet-initialised backbones). Eval resizes the short side to 256 and center-crops 224.
+    """
+    normalize = transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    if train:
+        return transforms.Compose([
+            transforms.RandomResizedCrop(size=img_size, scale=(0.2, 1.)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomApply([
+                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+            ], p=0.8),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.ToTensor(),
+            normalize,
+        ])
+    return transforms.Compose([
+        transforms.Resize(round(img_size * 256 / 224)),
+        transforms.CenterCrop(img_size),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+
+
 class AgeDB(data.Dataset):
     def __init__(self, df, data_dir, img_size, split='', reweight='none',
-                 lds=False, lds_kernel='gaussian', lds_ks=5, lds_sigma=2,aug_plus=False,reg=False,args=None,imagenet_normalize=False):
+                 lds=False, lds_kernel='gaussian', lds_ks=5, lds_sigma=2,aug_plus=False,reg=False,args=None,imagenet_normalize=False, aug='pta'):
         self.df = df
         self.data_dir = data_dir
         self.img_size = img_size
         self.split = split
         self.imagenet_normalize = imagenet_normalize
+        if aug not in ('pta', 'dir'):
+            raise ValueError(f"aug must be 'pta' or 'dir', got {aug!r}")
+        self.aug = aug
         self.aug_plus = aug_plus
         self.reg=reg
         self.weights = self._prepare_weights(reweight=reweight, lds=lds, lds_kernel=lds_kernel, lds_ks=lds_ks, lds_sigma=lds_sigma)
@@ -56,6 +86,10 @@ class AgeDB(data.Dataset):
         
         
     def get_transform(self):
+        if self.aug == 'pta':
+            # all three ConR views (regression input and the two contrastive views) use it
+            return pta_transform(self.split == 'train', self.img_size)
+        # 'dir': the original ConR / DIR transforms
         norm = (transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                 if self.imagenet_normalize else transforms.Normalize([.5, .5, .5], [.5, .5, .5]))
 

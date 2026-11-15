@@ -9,7 +9,35 @@ import pytorch_lightning as pl
 from torchvision import transforms
 
 
-def get_transforms(split, aug, img_size=224, normalization="conr"):
+def get_transforms(split, aug, img_size=224, normalization="conr", preset="dir"):
+    """The source run's transforms.
+
+    preset "pta": PostTrainingAdpt (condition-variance-cosine) utils.get_transforms with
+    aug="crop,flip,color,grayscale", for ConR runs trained with --aug pta; ``aug`` and
+    ``normalization`` are ignored (it always normalises with mean/std 0.5).
+    preset "dir": ConR's own transforms, with the ``aug`` list and the source normalization.
+    """
+    if preset == "pta":
+        normalize = transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        if split == 'train':
+            return transforms.Compose([
+                transforms.RandomResizedCrop(size=img_size, scale=(0.2, 1.)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomApply([
+                    transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+                ], p=0.8),
+                transforms.RandomGrayscale(p=0.2),
+                transforms.ToTensor(),
+                normalize,
+            ])
+        return transforms.Compose([
+            transforms.Resize(round(img_size * 256 / 224)),
+            transforms.CenterCrop(img_size),
+            transforms.ToTensor(),
+            normalize,
+        ])
+    if preset != "dir":
+        raise ValueError(f"Unknown transforms preset: {preset} (pta | dir)")
     if normalization == "imagenet":
         normalizer = transforms.Normalize([.485, .456, .406], [.229, .224, .225])
     elif normalization == "conr":
@@ -185,11 +213,13 @@ class AgeDBPTADataModule(pl.LightningDataModule):
         adaptation_split='val',
         normalization='conr',
         img_size=224,
+        transforms='dir',
     ):
         super().__init__()
         self.adaptation_split = adaptation_split
         self.data_folder = data_folder
         self.normalization = normalization
+        self.transforms = transforms
         self.img_size = int(img_size)
         self.aug = aug
         self.batch_size = batch_size
@@ -207,7 +237,7 @@ class AgeDBPTADataModule(pl.LightningDataModule):
         self.balance_seed = int(balance.get("seed", 0))
 
     def _transform(self, split, aug=""):
-        return get_transforms(split, aug, self.img_size, self.normalization)
+        return get_transforms(split, aug, self.img_size, self.normalization, self.transforms)
 
     def setup(self, stage=None):
         self.train_dataset = AgeDB_PTA(
